@@ -8,11 +8,17 @@ Item {
     property var shell: null
     property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
+    DisplayController {
+        id: displayController
+    }
+
     Component.onCompleted: {
         console.log(
             "[Battery Display Profiles] Service started. " +
             "onBattery =", UPower.onBattery
         )
+
+        displayController.discoverMonitors()
     }
 
     Connections {
