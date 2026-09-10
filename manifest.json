@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "battery-display-profiles",
+  "name": "Battery Display Profiles",
+  "version": "0.1.0",
+  "author": "Hazem-Ahmed-Salem",
+  "description": "Automatically switches display profiles based on AC or battery power.",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Service.qml"
+  }
+}
