@@ -13,9 +13,6 @@ Item {
 
     function discoverMonitors() {
         if (monitorProcess.running) {
-            console.log(
-                "[Battery Display Profiles] Monitor discovery already running"
-            )
             return
         }
 
@@ -24,6 +21,95 @@ Item {
         )
 
         monitorProcess.running = true
+    }
+
+    function findMonitor(name) {
+        for (var i = 0; i < monitors.length; i++) {
+            if (monitors[i].name === name) {
+                return monitors[i]
+            }
+        }
+
+        return null
+    }
+
+    function normalizeMode(mode) {
+        if (typeof mode !== "string") {
+            return ""
+        }
+
+        var result = mode.trim()
+
+        result = result.replace(/Hz$/i, "")
+
+        var parts = result.split("@")
+
+        if (parts.length !== 2) {
+            return result
+        }
+
+        var refreshRate = Number(parts[1])
+
+        if (isNaN(refreshRate)) {
+            return result
+        }
+
+        return parts[0] + "@" + refreshRate
+    }
+
+    function modeExists(monitor, requestedMode) {
+        if (!monitor) {
+            return false
+        }
+
+        if (!Array.isArray(monitor.availableModes)) {
+            return false
+        }
+
+        var requested = normalizeMode(requestedMode)
+
+        for (var i = 0; i < monitor.availableModes.length; i++) {
+            if (
+                normalizeMode(monitor.availableModes[i]) ===
+                requested
+            ) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    function validateMode(monitorName, requestedMode) {
+        var monitor = findMonitor(monitorName)
+
+        if (!monitor) {
+            console.warn(
+                "[Battery Display Profiles] Monitor not found:",
+                monitorName
+            )
+
+            return false
+        }
+
+        if (!modeExists(monitor, requestedMode)) {
+            console.warn(
+                "[Battery Display Profiles] Mode not available:",
+                requestedMode,
+                "on",
+                monitorName
+            )
+
+            return false
+        }
+
+        console.log(
+            "[Battery Display Profiles] Mode validated:",
+            monitorName,
+            requestedMode
+        )
+
+        return true
     }
 
     function handleMonitorData(data) {
@@ -40,33 +126,33 @@ Item {
                 message
             )
 
-            root.discoveryFailed(message)
+            discoveryFailed(message)
             return
         }
 
         if (!Array.isArray(parsed)) {
-            var typeError =
-                "hyprctl monitors -j returned an unexpected format"
+            var message =
+                "Unexpected monitor data from hyprctl"
 
             console.warn(
                 "[Battery Display Profiles]",
-                typeError
+                message
             )
 
-            root.discoveryFailed(typeError)
+            discoveryFailed(message)
             return
         }
 
-        root.monitors = parsed
+        monitors = parsed
 
         console.log(
             "[Battery Display Profiles] Discovered",
-            parsed.length,
+            monitors.length,
             "monitor(s)"
         )
 
-        for (var i = 0; i < parsed.length; i++) {
-            var monitor = parsed[i]
+        for (var i = 0; i < monitors.length; i++) {
+            var monitor = monitors[i]
 
             console.log(
                 "[Battery Display Profiles] Monitor:",
@@ -84,7 +170,7 @@ Item {
             }
         }
 
-        root.discoveryCompleted(parsed)
+        discoveryCompleted(monitors)
     }
 
     Process {
@@ -119,16 +205,6 @@ Item {
                 "status =", exitStatus
             )
 
-            console.log(
-                "[Battery Display Profiles] stdout:",
-                stdoutCollector.text
-            )
-
-            console.log(
-                "[Battery Display Profiles] stderr:",
-                stderrCollector.text
-            )
-
             if (exitCode !== 0) {
                 var error = stderrCollector.text
 
@@ -138,11 +214,11 @@ Item {
                 }
 
                 console.warn(
-                    "[Battery Display Profiles] Monitor discovery failed:",
+                    "[Battery Display Profiles] Discovery failed:",
                     error
                 )
 
-                root.discoveryFailed(error)
+                discoveryFailed(error)
             }
         }
     }
