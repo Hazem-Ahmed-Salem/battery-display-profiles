@@ -1,9 +1,12 @@
+import QtQuick
 import Quickshell
 import Quickshell.Services.UPower
-import QtQml
 
-QtObject {
+Item {
     id: root
+
+    property var shell: null
+    property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
     Component.onCompleted: {
         console.log(
