@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Services.UPower
+import QtQml
 
 Singleton {
     id: root
