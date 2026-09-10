@@ -2,7 +2,7 @@ import Quickshell
 import Quickshell.Services.UPower
 import QtQml
 
-Singleton {
+QtObject {
     id: root
 
     Component.onCompleted: {
