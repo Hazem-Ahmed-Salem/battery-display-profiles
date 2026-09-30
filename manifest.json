@@ -2,13 +2,44 @@
   "schemaVersion": 1,
   "id": "battery-display-profiles",
   "name": "Battery Display Profiles",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Hazem-Ahmed-Salem",
-  "description": "Automatically switches display profiles based on AC or battery power.",
+  "license": "MIT",
+  "description": "Automatically switches display profiles based on AC or battery power, with manual display controls.",
   "kinds": [
-    "service"
+    "service",
+    "bar-widget"
   ],
   "entryPoints": {
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Battery Display Profiles",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false,
+    "defaults": {
+      "monitor": "",
+      "acMode": "",
+      "batteryMode": ""
+    },
+    "schema": [
+      {
+        "key": "monitor",
+        "type": "string",
+        "label": "Monitor"
+      },
+      {
+        "key": "acMode",
+        "type": "string",
+        "label": "AC mode"
+      },
+      {
+        "key": "batteryMode",
+        "type": "string",
+        "label": "Battery mode"
+      }
+    ]
   }
 }
