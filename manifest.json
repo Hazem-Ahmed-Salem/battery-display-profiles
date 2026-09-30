@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "battery-display-profiles",
   "name": "Battery Display Profiles",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Hazem-Ahmed-Salem",
   "license": "MIT",
-  "description": "Automatically switches display profiles based on AC or battery power, with manual display controls.",
+  "description": "Automatically switches display profiles based on AC or battery power, with independent multi-monitor support and manual display controls.",
   "kinds": [
     "service",
     "bar-widget"
@@ -20,6 +20,7 @@
     "defaultSection": "right",
     "allowMultiple": false,
     "defaults": {
+      "monitors": [],
       "monitor": "",
       "acMode": "",
       "batteryMode": ""
