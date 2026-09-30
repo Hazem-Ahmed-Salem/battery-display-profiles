@@ -88,6 +88,81 @@ Item {
         return null
     }
 
+    function autoDetectMonitor() {
+        if (!Array.isArray(monitors) || monitors.length === 0) {
+            return null
+        }
+
+        // 1. Prefer internal laptop display (eDP, LVDS)
+        for (var i = 0; i < monitors.length; i++) {
+            if (/^(eDP|LVDS)/i.test(monitors[i].name)) {
+                return monitors[i]
+            }
+        }
+
+        // 2. Prefer focused monitor
+        for (var j = 0; j < monitors.length; j++) {
+            if (monitors[j].focused === true) {
+                return monitors[j]
+            }
+        }
+
+        // 3. Fallback to first discovered monitor
+        return monitors[0]
+    }
+
+    function highestMode(monitor) {
+        if (!monitor || !Array.isArray(monitor.availableModes) || monitor.availableModes.length === 0) {
+            return ""
+        }
+
+        var nativeWidth = monitor.width
+        var nativeHeight = monitor.height
+        var bestMode = ""
+        var maxRate = -1
+
+        for (var i = 0; i < monitor.availableModes.length; i++) {
+            var parsed = parseMode(monitor.availableModes[i])
+            if (!parsed) continue
+
+            if (parsed.width === nativeWidth && parsed.height === nativeHeight) {
+                if (parsed.refreshRate > maxRate) {
+                    maxRate = parsed.refreshRate
+                    bestMode = normalizeMode(monitor.availableModes[i])
+                }
+            }
+        }
+
+        if (bestMode !== "") return bestMode
+        return normalizeMode(monitor.availableModes[0])
+    }
+
+    function lowestMode(monitor) {
+        if (!monitor || !Array.isArray(monitor.availableModes) || monitor.availableModes.length === 0) {
+            return ""
+        }
+
+        var nativeWidth = monitor.width
+        var nativeHeight = monitor.height
+        var bestMode = ""
+        var minRate = 999999
+
+        for (var i = 0; i < monitor.availableModes.length; i++) {
+            var parsed = parseMode(monitor.availableModes[i])
+            if (!parsed) continue
+
+            if (parsed.width === nativeWidth && parsed.height === nativeHeight) {
+                if (parsed.refreshRate < minRate) {
+                    minRate = parsed.refreshRate
+                    bestMode = normalizeMode(monitor.availableModes[i])
+                }
+            }
+        }
+
+        if (bestMode !== "") return bestMode
+        return normalizeMode(monitor.availableModes[monitor.availableModes.length - 1])
+    }
+
     /*
      * ---------------------------------------------------------
      * Mode normalization
@@ -874,5 +949,9 @@ Item {
                 exitStatus
             )
         }
+    }
+
+    Component.onCompleted: {
+        root.discoverMonitors()
     }
 }

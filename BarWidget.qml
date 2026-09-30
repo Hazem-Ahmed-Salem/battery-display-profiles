@@ -16,29 +16,63 @@ Item {
     property var settings: ({})
     property bool opened: false
 
-    property string monitorName:
+    property string configuredMonitor:
         settings ? (settings.monitor || "") : ""
+    property string selectedMonitor: ""
 
-    property string acMode:
+    readonly property string autoDetectedMonitor: {
+        var mons = displayController.monitors
+        if (!mons || mons.length === 0) return ""
+        var mon = displayController.autoDetectMonitor()
+        return mon ? mon.name : ""
+    }
+
+    readonly property string monitorName: {
+        if (selectedMonitor !== "") return selectedMonitor
+        if (configuredMonitor !== "") return configuredMonitor
+        return autoDetectedMonitor
+    }
+
+    property string configuredAcMode:
         settings ? (settings.acMode || "") : ""
+    property string selectedAcMode: ""
 
-    property string batteryMode:
+    readonly property string acMode: {
+        if (selectedAcMode !== "") return selectedAcMode
+        if (configuredAcMode !== "") return configuredAcMode
+        var mons = displayController.monitors
+        return displayController.highestMode(currentMonitor)
+    }
+
+    property string configuredBatteryMode:
         settings ? (settings.batteryMode || "") : ""
+    property string selectedBatteryMode: ""
+
+    readonly property string batteryMode: {
+        if (selectedBatteryMode !== "") return selectedBatteryMode
+        if (configuredBatteryMode !== "") return configuredBatteryMode
+        var mons = displayController.monitors
+        return displayController.lowestMode(currentMonitor)
+    }
 
     readonly property string powerState:
         UPower.onBattery
             ? "Battery"
             : "AC"
 
-    readonly property var currentMonitor:
-        displayController.findMonitor(
+    readonly property var currentMonitor: {
+        var mons = displayController.monitors
+        return displayController.findMonitor(
             root.monitorName
         )
+    }
 
-    readonly property string currentMode:
-        displayController.currentMode(
+    readonly property string currentMode: {
+        var mons = displayController.monitors
+        return displayController.currentMode(
             root.currentMonitor
         )
+    }
 
     property string profileEditor: ""
 
@@ -75,6 +109,35 @@ Item {
         }
     }
 
+    onSettingsChanged: {
+        if (settings && typeof settings === "object") {
+            if (settings.monitor) {
+                root.selectedMonitor = settings.monitor
+            }
+            if (settings.acMode) {
+                root.selectedAcMode = settings.acMode
+            }
+            if (settings.batteryMode) {
+                root.selectedBatteryMode = settings.batteryMode
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        if (settings && typeof settings === "object") {
+            if (settings.monitor) {
+                root.selectedMonitor = settings.monitor
+            }
+            if (settings.acMode) {
+                root.selectedAcMode = settings.acMode
+            }
+            if (settings.batteryMode) {
+                root.selectedBatteryMode = settings.batteryMode
+            }
+        }
+        displayController.discoverMonitors()
+    }
+
     Process {
         id: profileSaveProcess
 
@@ -89,10 +152,9 @@ Item {
                     root.pendingProfileKey,
                     root.pendingProfileMode
                 )
-                root.closeProfileEditor()
             } else {
                 console.warn(
-                    "[Battery Display Profiles] Failed to save profile. Exit code:",
+                    "[Battery Display Profiles] Failed to save profile via CLI. Exit code:",
                     exitCode
                 )
             }
@@ -230,13 +292,40 @@ Item {
         root.profileEditor = ""
     }
 
-    function saveMonitor(name) {
-        if (name === "" || root.savingProfile) return
-
-        if (name === root.monitorName) {
-            root.closeProfileEditor()
-            return
+    function persistSettings(values) {
+        var entry = {}
+        if (root.settings && typeof root.settings === "object") {
+            for (var key in root.settings) {
+                if (key !== "id") entry[key] = root.settings[key]
+            }
         }
+        for (var k in values) {
+            entry[k] = values[k]
+        }
+        root.settings = entry
+
+        var modName = root.moduleName || "battery-display-profiles"
+        if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
+            root.bar.shell.updateEntryInline(modName, entry)
+        }
+    }
+
+    function saveMonitor(name) {
+        if (!name || name === "") return
+
+        root.selectedMonitor = name
+        root.selectedAcMode = ""
+        root.selectedBatteryMode = ""
+        root.closeProfileEditor()
+
+        var mon = displayController.findMonitor(name)
+        var autoAc = mon ? displayController.highestMode(mon) : ""
+        var autoBat = mon ? displayController.lowestMode(mon) : ""
+
+        var updates = { monitor: name }
+        if (autoAc !== "") updates.acMode = autoAc
+        if (autoBat !== "") updates.batteryMode = autoBat
+        root.persistSettings(updates)
 
         root.pendingProfileKey = "monitor"
         root.pendingProfileMode = name
@@ -247,11 +336,15 @@ Item {
             name
         )
 
+        var modName = root.moduleName || "battery-display-profiles"
+        if (profileSaveProcess.running) {
+            profileSaveProcess.running = false
+        }
         profileSaveProcess.command = [
             "omarchy",
             "bar",
             "set",
-            "battery-display-profiles",
+            modName,
             "monitor",
             name
         ]
@@ -265,8 +358,7 @@ Item {
 
         if (
             key === "" ||
-            mode === "" ||
-            root.savingProfile
+            !mode
         ) {
             return
         }
@@ -280,49 +372,55 @@ Item {
             return
         }
 
+        var normalizedMode =
+            displayController.normalizeMode(mode)
+
         if (
             !displayController.validateMode(
                 root.monitorName,
-                mode
+                normalizedMode
             )
         ) {
             console.warn(
                 "[Battery Display Profiles] Refusing unavailable profile mode:",
-                mode
+                normalizedMode
             )
             return
         }
 
-        var currentProfileMode =
-            root.profileModeForEditor()
-
-        if (
-            displayController.modesEquivalent(
-                currentProfileMode,
-                mode
-            )
-        ) {
-            root.closeProfileEditor()
-            return
+        if (key === "acMode") {
+            root.selectedAcMode = normalizedMode
+        } else if (key === "batteryMode") {
+            root.selectedBatteryMode = normalizedMode
         }
+
+        root.closeProfileEditor()
+
+        var updates = {}
+        updates[key] = normalizedMode
+        root.persistSettings(updates)
 
         root.pendingProfileKey = key
-        root.pendingProfileMode = mode
+        root.pendingProfileMode = normalizedMode
         root.savingProfile = true
 
         console.log(
             "[Battery Display Profiles] Saving profile:",
             key,
-            mode
+            normalizedMode
         )
 
+        var modName = root.moduleName || "battery-display-profiles"
+        if (profileSaveProcess.running) {
+            profileSaveProcess.running = false
+        }
         profileSaveProcess.command = [
             "omarchy",
             "bar",
             "set",
-            "battery-display-profiles",
+            modName,
             key,
-            mode
+            normalizedMode
         ]
 
         profileSaveProcess.running = true
@@ -1421,21 +1519,15 @@ Item {
                                         hoverEnabled: true
 
                                         cursorShape:
-                                            root.savingProfile
-                                                ? Qt.ArrowCursor
-                                                : Qt.PointingHandCursor
+                                            Qt.PointingHandCursor
 
                                         onClicked: {
-                                            if (
-                                                !root.savingProfile
-                                            ) {
-                                                if (root.profileEditor === "Monitor") {
-                                                    root.saveMonitor(modelData.name)
-                                                } else {
-                                                    root.saveProfileMode(
-                                                        modelData
-                                                    )
-                                                }
+                                            if (root.profileEditor === "Monitor") {
+                                                root.saveMonitor(modelData.name)
+                                            } else {
+                                                root.saveProfileMode(
+                                                    modelData
+                                                )
                                             }
                                         }
                                     }

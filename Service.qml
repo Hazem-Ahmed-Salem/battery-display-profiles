@@ -32,6 +32,9 @@ Item {
             console.log(
                 "[Battery Display Profiles] Service monitor discovery completed"
             )
+            if (!root.configValid && root.configLoaded) {
+                root.loadConfiguration()
+            }
             root.tryApplyProfile()
         }
 
@@ -138,6 +141,37 @@ Item {
         var configuredMonitor = String(entry.monitor || "").trim()
         var configuredAcMode = String(entry.acMode || "").trim()
         var configuredBatteryMode = String(entry.batteryMode || "").trim()
+
+        if (configuredMonitor === "") {
+            var autoMon = displayController.autoDetectMonitor()
+            if (autoMon) {
+                configuredMonitor = autoMon.name
+                console.log(
+                    "[Battery Display Profiles] Auto-detected monitor:",
+                    configuredMonitor
+                )
+            }
+        }
+
+        if (configuredMonitor !== "") {
+            var targetMonitor = displayController.findMonitor(configuredMonitor)
+            if (targetMonitor) {
+                if (configuredAcMode === "") {
+                    configuredAcMode = displayController.highestMode(targetMonitor)
+                    console.log(
+                        "[Battery Display Profiles] Auto-detected AC mode:",
+                        configuredAcMode
+                    )
+                }
+                if (configuredBatteryMode === "") {
+                    configuredBatteryMode = displayController.lowestMode(targetMonitor)
+                    console.log(
+                        "[Battery Display Profiles] Auto-detected Battery mode:",
+                        configuredBatteryMode
+                    )
+                }
+            }
+        }
 
         if (
             configuredMonitor === "" ||
