@@ -18,6 +18,13 @@ Item {
     // Reactive power state from Quickshell UPower. No polling.
     property bool onBattery: UPower.onBattery
 
+    // React to monitor hotplug events without polling
+    readonly property int screenCount: Quickshell.screens.length
+    onScreenCountChanged: {
+        console.log("[Battery Display Profiles] Screen count changed to:", screenCount)
+        displayController.discoverMonitors()
+    }
+
     // Per-monitor applied state: { [monitorName]: { powerState: string, mode: string } }
     property var appliedState: ({})
 
@@ -33,9 +40,7 @@ Item {
                 "[Battery Display Profiles] Service monitor discovery completed (" +
                 (Array.isArray(monitors) ? monitors.length : 0) + " monitors discovered)"
             )
-            if (root.configLoaded) {
-                root.loadConfiguration()
-            }
+            root.loadConfiguration()
             root.tryApplyProfiles()
         }
 
@@ -156,9 +161,18 @@ Item {
 
         var rawList = []
 
-        // 1. Check if multi-monitor "monitors" array is present
+        // 1. Check if multi-monitor "monitors" array, JSON string, or object is present
         if (Array.isArray(entry.monitors)) {
             rawList = entry.monitors
+        } else if (typeof entry.monitors === "string") {
+            try {
+                var parsedMonitorsJson = JSON.parse(entry.monitors)
+                if (Array.isArray(parsedMonitorsJson)) {
+                    rawList = parsedMonitorsJson
+                } else if (parsedMonitorsJson && typeof parsedMonitorsJson === "object") {
+                    rawList = [parsedMonitorsJson]
+                }
+            } catch (e) {}
         } else if (entry.monitors && typeof entry.monitors === "object") {
             rawList = [entry.monitors]
         } else if (entry.monitor && typeof entry.monitor === "string") {
@@ -177,24 +191,10 @@ Item {
             ]
         }
 
-        // 3. Fallback: auto-detect if no monitors configured at all
-        if (rawList.length === 0 && Array.isArray(displayController.monitors) && displayController.monitors.length > 0) {
-            for (var d = 0; d < displayController.monitors.length; d++) {
-                var autoMon = displayController.monitors[d]
-                console.log(
-                    "[Battery Display Profiles] Auto-detected monitor to configure:",
-                    autoMon.name
-                )
-                rawList.push({
-                    name: autoMon.name,
-                    enabled: true,
-                    acMode: displayController.highestMode(autoMon),
-                    batteryMode: displayController.lowestMode(autoMon)
-                })
-            }
-        }
-
         var parsedMonitors = []
+        var configNeedsPersist = false
+
+        // Parse and validate existing configured monitors
         for (var i = 0; i < rawList.length; i++) {
             var item = rawList[i]
             if (!item || typeof item !== "object") continue
@@ -205,14 +205,26 @@ Item {
             var mAcMode = String(item.acMode || "").trim()
             var mBatteryMode = String(item.batteryMode || "").trim()
 
-            // If modes are unconfigured, fill them from live monitor info if available
+            // If monitor is connected, ensure modes match active resolution and actually exist
             var liveMon = displayController.findMonitor(mName)
             if (liveMon) {
-                if (mAcMode === "") {
+                if (mAcMode === "" || !displayController.modeMatchesCurrentResolution(liveMon, mAcMode) || !displayController.modeExists(liveMon, mAcMode)) {
                     mAcMode = displayController.highestMode(liveMon)
+                    configNeedsPersist = true
+                    console.log(
+                        "[Battery Display Profiles] Falling back to safe default AC mode for",
+                        mName + ":",
+                        mAcMode
+                    )
                 }
-                if (mBatteryMode === "") {
+                if (mBatteryMode === "" || !displayController.modeMatchesCurrentResolution(liveMon, mBatteryMode) || !displayController.modeExists(liveMon, mBatteryMode)) {
                     mBatteryMode = displayController.lowestMode(liveMon)
+                    configNeedsPersist = true
+                    console.log(
+                        "[Battery Display Profiles] Falling back to safe default Battery mode for",
+                        mName + ":",
+                        mBatteryMode
+                    )
                 }
             }
 
@@ -222,6 +234,37 @@ Item {
                 acMode: mAcMode,
                 batteryMode: mBatteryMode
             })
+        }
+
+        // Auto-detect ANY connected monitors not yet in the configuration
+        if (Array.isArray(displayController.monitors) && displayController.monitors.length > 0) {
+            for (var d = 0; d < displayController.monitors.length; d++) {
+                var discovered = displayController.monitors[d]
+                var alreadyKnown = false
+                for (var e = 0; e < parsedMonitors.length; e++) {
+                    if (parsedMonitors[e].name === discovered.name) {
+                        alreadyKnown = true
+                        break
+                    }
+                }
+
+                if (!alreadyKnown) {
+                    var defaultAc = displayController.highestMode(discovered)
+                    var defaultBattery = displayController.lowestMode(discovered)
+                    console.log(
+                        "[Battery Display Profiles] Auto-detected display:",
+                        discovered.name,
+                        "(AC=" + defaultAc + ", Battery=" + defaultBattery + ")"
+                    )
+                    parsedMonitors.push({
+                        name: discovered.name,
+                        enabled: true,
+                        acMode: defaultAc,
+                        batteryMode: defaultBattery
+                    })
+                    configNeedsPersist = true
+                }
+            }
         }
 
         // Detect per-monitor configuration changes and invalidate appliedState for modified monitors
@@ -268,11 +311,43 @@ Item {
             )
         }
 
+        if (configNeedsPersist) {
+            root.persistSettingsCli(parsedMonitors)
+        }
+
         if (displayController.monitors.length === 0) {
             displayController.discoverMonitors()
         } else {
             root.tryApplyProfiles()
         }
+    }
+
+    Process {
+        id: cliPersistProcess
+    }
+
+    function persistSettingsCli(monitorsList) {
+        if (!monitorsList || monitorsList.length === 0 || cliPersistProcess.running) {
+            return
+        }
+
+        var primary = monitorsList[0]
+        var jsonStr = JSON.stringify(monitorsList)
+
+        console.log(
+            "[Battery Display Profiles] Persisting auto-detected displays via omarchy bar set"
+        )
+
+        cliPersistProcess.command = [
+            "sh",
+            "-c",
+            "omarchy bar set battery-display-profiles monitor " + JSON.stringify(primary.name) + " && " +
+            "omarchy bar set battery-display-profiles acMode " + JSON.stringify(primary.acMode) + " && " +
+            "omarchy bar set battery-display-profiles batteryMode " + JSON.stringify(primary.batteryMode) + " && " +
+            "omarchy bar set battery-display-profiles monitors " + JSON.stringify(jsonStr) + " --json"
+        ]
+
+        cliPersistProcess.running = true
     }
 
     function findPluginBarEntry(config) {

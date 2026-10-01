@@ -10,13 +10,22 @@
     "service",
     "bar-widget"
   ],
+  "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Battery Display Profiles",
+    "description": "Display power profile switcher and manual monitor refresh rate controls",
     "category": "System",
+    "aliases": [
+      "display",
+      "battery",
+      "monitor",
+      "refresh rate",
+      "hz"
+    ],
     "defaultSection": "right",
     "allowMultiple": false,
     "defaults": {

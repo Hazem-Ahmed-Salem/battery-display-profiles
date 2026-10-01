@@ -111,56 +111,131 @@ Item {
         return monitors[0]
     }
 
-    function highestMode(monitor) {
+    /*
+     * ---------------------------------------------------------
+     * Current resolution modes lookup
+     *
+     * Finds all modes matching the monitor's active resolution,
+     * accounting for normal and rotated displays (90/270 deg).
+     * ---------------------------------------------------------
+     */
+
+    function modesForCurrentResolution(monitor) {
         if (!monitor || !Array.isArray(monitor.availableModes) || monitor.availableModes.length === 0) {
-            return ""
+            return []
         }
 
-        var nativeWidth = monitor.width
-        var nativeHeight = monitor.height
-        var bestMode = ""
-        var maxRate = -1
+        var currentW = Number(monitor.width)
+        var currentH = Number(monitor.height)
+        if (isNaN(currentW) || isNaN(currentH) || currentW <= 0 || currentH <= 0) {
+            return []
+        }
 
+        var matches = []
+
+        // 1. Direct match with current width and height
         for (var i = 0; i < monitor.availableModes.length; i++) {
             var parsed = parseMode(monitor.availableModes[i])
             if (!parsed) continue
 
-            if (parsed.width === nativeWidth && parsed.height === nativeHeight) {
-                if (parsed.refreshRate > maxRate) {
-                    maxRate = parsed.refreshRate
-                    bestMode = normalizeMode(monitor.availableModes[i])
+            if (parsed.width === currentW && parsed.height === currentH) {
+                matches.push({
+                    raw: monitor.availableModes[i],
+                    normalized: normalizeMode(monitor.availableModes[i]),
+                    parsed: parsed
+                })
+            }
+        }
+
+        // 2. Swapped match for rotated displays (transform 90/270 degrees)
+        if (matches.length === 0) {
+            for (var j = 0; j < monitor.availableModes.length; j++) {
+                var parsedRot = parseMode(monitor.availableModes[j])
+                if (!parsedRot) continue
+
+                if (parsedRot.width === currentH && parsedRot.height === currentW) {
+                    matches.push({
+                        raw: monitor.availableModes[j],
+                        normalized: normalizeMode(monitor.availableModes[j]),
+                        parsed: parsedRot
+                    })
                 }
             }
         }
 
-        if (bestMode !== "") return bestMode
-        return normalizeMode(monitor.availableModes[0])
+        return matches
+    }
+
+    function modeMatchesCurrentResolution(monitor, mode) {
+        if (!monitor || typeof mode !== "string" || mode.trim() === "") {
+            return false
+        }
+
+        var parsed = parseMode(mode)
+        if (!parsed) {
+            return false
+        }
+
+        var currentW = Number(monitor.width)
+        var currentH = Number(monitor.height)
+        if (isNaN(currentW) || isNaN(currentH)) {
+            return false
+        }
+
+        return (parsed.width === currentW && parsed.height === currentH) ||
+               (parsed.width === currentH && parsed.height === currentW)
+    }
+
+    function highestMode(monitor) {
+        if (!monitor) {
+            return ""
+        }
+
+        var matches = modesForCurrentResolution(monitor)
+        if (matches.length === 0) {
+            // Guarantee: NEVER change resolution, fallback to currentMode
+            return currentMode(monitor)
+        }
+
+        var best = matches[0]
+        for (var i = 1; i < matches.length; i++) {
+            if (matches[i].parsed.refreshRate > best.parsed.refreshRate) {
+                best = matches[i]
+            }
+        }
+
+        return best.normalized
     }
 
     function lowestMode(monitor) {
-        if (!monitor || !Array.isArray(monitor.availableModes) || monitor.availableModes.length === 0) {
+        if (!monitor) {
             return ""
         }
 
-        var nativeWidth = monitor.width
-        var nativeHeight = monitor.height
-        var bestMode = ""
-        var minRate = 999999
+        var matches = modesForCurrentResolution(monitor)
+        if (matches.length === 0) {
+            // Guarantee: NEVER change resolution, fallback to currentMode
+            return currentMode(monitor)
+        }
 
-        for (var i = 0; i < monitor.availableModes.length; i++) {
-            var parsed = parseMode(monitor.availableModes[i])
-            if (!parsed) continue
-
-            if (parsed.width === nativeWidth && parsed.height === nativeHeight) {
-                if (parsed.refreshRate < minRate) {
-                    minRate = parsed.refreshRate
-                    bestMode = normalizeMode(monitor.availableModes[i])
-                }
+        // For battery mode, prefer ~60Hz if available (>= 59.0Hz)
+        // to avoid picking an unusable 24Hz/30Hz mode on HDMI/TV displays.
+        var smoothModes = []
+        for (var i = 0; i < matches.length; i++) {
+            if (matches[i].parsed.refreshRate >= 59.0) {
+                smoothModes.push(matches[i])
             }
         }
 
-        if (bestMode !== "") return bestMode
-        return normalizeMode(monitor.availableModes[monitor.availableModes.length - 1])
+        var candidates = (smoothModes.length > 0) ? smoothModes : matches
+        var best = candidates[0]
+        for (var j = 1; j < candidates.length; j++) {
+            if (candidates[j].parsed.refreshRate < best.parsed.refreshRate) {
+                best = candidates[j]
+            }
+        }
+
+        return best.normalized
     }
 
     /*

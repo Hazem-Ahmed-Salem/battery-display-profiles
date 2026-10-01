@@ -1,9 +1,18 @@
 # Local/editor files
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
 # OS files
 .DS_Store
 Thumbs.db
-plan for Battery Display profiles.md
-plan_2.md
+
+# Test/scratch artifacts
+/tests/*.log
+/tests/tmp/
+
+# Documentation & notes
+docs/
+plan*.md

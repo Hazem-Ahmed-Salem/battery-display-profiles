@@ -95,6 +95,12 @@ Item {
         }
     }
 
+    // React to monitor hotplug events without polling
+    readonly property int screenCount: Quickshell.screens.length
+    onScreenCountChanged: {
+        displayController.discoverMonitors()
+    }
+
     /*
      * ---------------------------------------------------------
      * Helpers & Configuration sync
@@ -107,6 +113,15 @@ Item {
         if (settings && typeof settings === "object") {
             if (Array.isArray(settings.monitors)) {
                 list = settings.monitors
+            } else if (typeof settings.monitors === "string") {
+                try {
+                    var parsedMonitorsJson = JSON.parse(settings.monitors)
+                    if (Array.isArray(parsedMonitorsJson)) {
+                        list = parsedMonitorsJson
+                    } else if (parsedMonitorsJson && typeof parsedMonitorsJson === "object") {
+                        list = [parsedMonitorsJson]
+                    }
+                } catch (e) {}
             } else if (settings.monitors && typeof settings.monitors === "object") {
                 list = [settings.monitors]
             } else if (settings.monitor && typeof settings.monitor === "string") {
@@ -121,19 +136,10 @@ Item {
             }
         }
 
-        if (list.length === 0 && Array.isArray(displayController.monitors) && displayController.monitors.length > 0) {
-            for (var d = 0; d < displayController.monitors.length; d++) {
-                var autoM = displayController.monitors[d]
-                list.push({
-                    name: autoM.name,
-                    enabled: true,
-                    acMode: displayController.highestMode(autoM),
-                    batteryMode: displayController.lowestMode(autoM)
-                })
-            }
-        }
-
         var parsed = []
+        var needsPersist = false
+
+        // 1. Process configured monitors
         for (var i = 0; i < list.length; i++) {
             var item = list[i]
             if (!item || typeof item !== "object") continue
@@ -146,8 +152,14 @@ Item {
 
             var live = displayController.findMonitor(mName)
             if (live) {
-                if (mAc === "") mAc = displayController.highestMode(live)
-                if (mBat === "") mBat = displayController.lowestMode(live)
+                if (mAc === "" || !displayController.modeMatchesCurrentResolution(live, mAc) || !displayController.modeExists(live, mAc)) {
+                    mAc = displayController.highestMode(live)
+                    needsPersist = true
+                }
+                if (mBat === "" || !displayController.modeMatchesCurrentResolution(live, mBat) || !displayController.modeExists(live, mBat)) {
+                    mBat = displayController.lowestMode(live)
+                    needsPersist = true
+                }
             }
 
             parsed.push({
@@ -156,6 +168,29 @@ Item {
                 acMode: mAc,
                 batteryMode: mBat
             })
+        }
+
+        // 2. Auto-detect any newly discovered monitors not yet configured
+        if (Array.isArray(displayController.monitors) && displayController.monitors.length > 0) {
+            for (var d = 0; d < displayController.monitors.length; d++) {
+                var autoM = displayController.monitors[d]
+                var alreadyPresent = false
+                for (var p = 0; p < parsed.length; p++) {
+                    if (parsed[p].name === autoM.name) {
+                        alreadyPresent = true
+                        break
+                    }
+                }
+                if (!alreadyPresent) {
+                    parsed.push({
+                        name: autoM.name,
+                        enabled: true,
+                        acMode: displayController.highestMode(autoM),
+                        batteryMode: displayController.lowestMode(autoM)
+                    })
+                    needsPersist = true
+                }
+            }
         }
 
         root.configuredMonitors = parsed
@@ -169,10 +204,15 @@ Item {
                 }
             }
             if (!found) {
-                root.activeMonitorName = parsed[0].name
+                var preferred = displayController.autoDetectMonitor()
+                root.activeMonitorName = (preferred && preferred.name) ? preferred.name : parsed[0].name
             }
         } else {
             root.activeMonitorName = ""
+        }
+
+        if (needsPersist) {
+            root.persistSettings()
         }
     }
 
@@ -767,18 +807,9 @@ Item {
 
                                     Repeater {
                                         model: {
-                                            if (!root.activeLiveMonitor || !Array.isArray(root.activeLiveMonitor.availableModes)) return []
-                                            var modes = root.activeLiveMonitor.availableModes
-                                            var nativeW = root.activeLiveMonitor.width
-                                            var nativeH = root.activeLiveMonitor.height
-                                            var filtered = []
-                                            for (var m = 0; m < modes.length; m++) {
-                                                var p = displayController.parseMode(modes[m])
-                                                if (p && p.width === nativeW && p.height === nativeH) {
-                                                    filtered.push(modes[m])
-                                                }
-                                            }
-                                            return filtered.length > 0 ? filtered : modes
+                                            if (!root.activeLiveMonitor) return []
+                                            var curModes = displayController.modesForCurrentResolution(root.activeLiveMonitor)
+                                            return curModes.map(function(m) { return m.raw })
                                         }
 
                                         delegate: CursorSurface {
@@ -1076,9 +1107,14 @@ Item {
                         spacing: Style.space(4)
 
                         Repeater {
-                            model: (root.activeLiveMonitor && Array.isArray(root.activeLiveMonitor.availableModes))
-                                ? root.activeLiveMonitor.availableModes
-                                : []
+                            model: {
+                                if (!root.activeLiveMonitor) return []
+                                var curModes = displayController.modesForCurrentResolution(root.activeLiveMonitor)
+                                if (curModes.length > 0) {
+                                    return curModes.map(function(m) { return m.raw })
+                                }
+                                return root.activeLiveMonitor.availableModes || []
+                            }
 
                             delegate: CursorSurface {
                                 required property var modelData
