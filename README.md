@@ -1,11 +1,40 @@
 # Battery Display Profiles
 
-A native **Omarchy 4** plugin and bar widget that automatically manages display refresh rates based on power state across multiple monitors independently:
+<p align="center">
+  <img src="preview.png" alt="Battery Display Profiles Hero" width="460" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Hazem-Ahmed-Salem/battery-display-profiles/releases"><img src="https://img.shields.io/badge/version-0.3.0-blue.svg?style=flat-square" alt="Version 0.3.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="MIT License" /></a>
+  <a href="https://omarchy.org"><img src="https://img.shields.io/badge/Omarchy-4%20(Quattro)-8A2BE2.svg?style=flat-square" alt="Omarchy 4 Quattro" /></a>
+  <a href="https://hyprland.org"><img src="https://img.shields.io/badge/Hyprland-Native%20Lua-00bcd4.svg?style=flat-square" alt="Hyprland" /></a>
+</p>
+
+A native **Omarchy 4** plugin and status bar widget that automatically manages display refresh rates based on power state across multiple monitors independently:
 
 - 󰚥 **AC Power (Plugged In)** ➔ `acMode` (highest refresh rate at current resolution, e.g. 165Hz / 144Hz / 240Hz)
 - 󰂁 **Battery (Unplugged)** ➔ `batteryMode` (power-saving smooth refresh rate at current resolution, e.g. 60Hz)
 
 Features zero-touch display auto-detection, strict resolution preservation, zero-polling reactive power state tracking, an interactive status bar widget with quick overrides, and multi-layered self-healing protection.
+
+---
+
+## Visual Overview
+
+<div align="center">
+
+| Internal Laptop Display (`eDP-1`) | External High-Refresh Monitor (`HDMI-A-5`) |
+| :---: | :---: |
+| <img src="Preview/panel-primary-display.png" width="360" alt="Primary Laptop Display (eDP-1)" /> | <img src="Preview/panel-multimonitor-display.png" width="360" alt="External Monitor (HDMI-A-5)" /> |
+| *Single/primary display running at 2560×1600 with quick 165 Hz / 60 Hz toggles and dedicated AC/Battery profiles.* | *Independent multi-monitor management with complete hardware refresh rate spectrum (24 Hz – 165 Hz).* |
+
+</div>
+
+<p align="center">
+  <img src="Preview/bar-icon.png" width="32" height="30" alt="Bar Widget Glyph" valign="middle" />
+  &nbsp;&nbsp;<b>Dynamic Bar Glyph</b>: The status bar button adapts automatically to show a single monitor or stacked multi-monitor icon.
+</p>
 
 ---
 
@@ -15,11 +44,11 @@ Features zero-touch display auto-detection, strict resolution preservation, zero
 
 #### Install
 ```bash
-# Add and enable the plugin directly
+# Add and enable the plugin directly into the right bar section
 omarchy plugin add https://github.com/Hazem-Ahmed-Salem/battery-display-profiles.git --enable --yes
 ```
 
-If you prefer to specify the bar placement manually:
+If you prefer to specify the bar section manually:
 ```bash
 omarchy plugin add https://github.com/Hazem-Ahmed-Salem/battery-display-profiles.git --yes
 omarchy plugin enable battery-display-profiles right
@@ -69,12 +98,12 @@ omarchy-shell shell rescanPlugins
 
 ## Key Features
 
-- **Zero-Touch Display Auto-Detection**: Automatically detects any connected monitor (internal laptop eDP, HDMI, DisplayPort, USB-C) at startup and on hotplug. No manual setup required to start saving battery.
-- **Strict Resolution Preservation**: Mode switching **never** modifies your display resolution. If a display runs at 2560×1600 or 1920×1080, only the refresh rate changes (e.g. 165Hz ↔ 60Hz).
-- **Rotated & Portrait Display Support**: Seamlessly accommodates transformed and rotated displays (90° / 270°) by evaluating physical vs transformed dimensions.
+- **Zero-Touch Display Auto-Detection**: Automatically discovers any connected monitor (internal laptop eDP, HDMI, DisplayPort, USB-C) at startup and during hotplug events. Default AC and Battery modes are configured out of the box with zero manual setup.
+- **Strict Resolution Preservation**: Mode switching **never** alters your display resolution. If a display runs at 2560×1600 or 1920×1080, only the refresh rate changes (e.g. 165Hz ↔ 60Hz).
+- **Rotated & Portrait Display Support**: Seamlessly accommodates transformed displays (90° / 270°) by evaluating physical dimensions against transformed viewports.
 - **Smart Refresh Rate Selection**:
   - **AC Default**: Highest available refresh rate for the active resolution.
-  - **Battery Default**: Lowest smooth refresh rate ($\ge 59\,\text{Hz}$), avoiding unusable 24/30 Hz cinema/TV modes on HDMI monitors.
+  - **Battery Default**: Lowest smooth refresh rate ($\ge 59\,\text{Hz}$), intelligently avoiding unusable 24/30 Hz cinema/TV modes on external displays.
 - **User Preference Retention**: Custom refresh rate selections configured via the Bar Widget are persisted to disk and preserved across reboots and shell restarts.
 - **Multi-Layered Self-Healing**:
   - Validates modes against hardware capabilities before executing any compositor call.
@@ -86,8 +115,8 @@ omarchy-shell shell rescanPlugins
   - Zero timer loops, zero `while true` sleep scripts, and zero daemon overhead.
 - **Immediate Reaction**: Watches `~/.config/omarchy/shell.json` via live file watchers. Modifying a profile in the UI immediately applies to the active power state.
 - **Native Quattro Bar Widget**:
-  - Clean status bar glyph indicating single or multi-monitor setups.
-  - Monitor chips with live connection status dots (`●`) and disabled indicators.
+  - Dynamic status bar glyph indicating single or multi-monitor setups.
+  - Monitor tabs with live connection status dots (`●`) and disabled indicators.
   - Quick refresh rate toggle buttons for instantaneous manual overrides.
   - Detailed AC and Battery profile cards with interactive mode pickers.
   - Disconnected monitor safety: Disconnected displays are preserved in settings and skipped cleanly.
@@ -152,9 +181,9 @@ Settings are saved in `~/.config/omarchy/shell.json` under your bar configuratio
       "batteryMode": "2560x1600@60"
     },
     {
-      "name": "DP-1",
+      "name": "HDMI-A-5",
       "enabled": true,
-      "acMode": "1920x1080@144",
+      "acMode": "1920x1080@165",
       "batteryMode": "1920x1080@60"
     }
   ],
@@ -190,38 +219,6 @@ Click the display icon in the bar to open the popup surface:
 
 ---
 
-## Verification & Diagnostics
-
-### Run the Test Suite
-
-The repository includes automated checks for manifest schema, QML linting, and resolution-preservation mode logic:
-
-```bash
-bash tests/validate.sh
-```
-
-### Check Active Modes in Hyprland
-
-```bash
-hyprctl monitors -j | jq '.[] | {name, width, height, refreshRate}'
-```
-
-### View Live Diagnostic Logs
-
-Filter system logs for the plugin prefix:
-
-```bash
-journalctl --user -b -f | grep "\[Battery Display Profiles\]"
-```
-
-Key diagnostic log events:
-- `Auto-detected display: <name> (AC=<mode>, Battery=<mode>)`
-- `Profile changed for <name>; invalidated applied state for immediate re-application`
-- `Mode validated: <name> <mode>`
-- `Monitor <name> is already in desired mode: <mode> (<powerState>)`
-- `Mode change verified: <name> <mode>`
-
----
 
 ## Requirements
 
