@@ -250,7 +250,7 @@ Item {
 
         root.settings = entry
 
-        var modName = root.moduleName || "battery-display-profiles"
+        var modName = root.moduleName || "hazem.battery.display"
         if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
             root.bar.shell.updateEntryInline(modName, entry)
         }

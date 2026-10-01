@@ -51,19 +51,19 @@ omarchy plugin add https://github.com/Hazem-Ahmed-Salem/battery-display-profiles
 If you prefer to specify the bar section manually:
 ```bash
 omarchy plugin add https://github.com/Hazem-Ahmed-Salem/battery-display-profiles.git --yes
-omarchy plugin enable battery-display-profiles right
+omarchy plugin enable hazem.battery.display right
 ```
 
 #### Update
 ```bash
-omarchy plugin update battery-display-profiles --yes
+omarchy plugin update hazem.battery.display --yes
 ```
 
 #### Uninstall
 ```bash
 # Disable and remove the plugin completely
-omarchy plugin disable battery-display-profiles
-omarchy plugin remove battery-display-profiles --yes
+omarchy plugin disable hazem.battery.display
+omarchy plugin remove hazem.battery.display --yes
 ```
 
 ---
@@ -79,16 +79,16 @@ git clone https://github.com/Hazem-Ahmed-Salem/battery-display-profiles.git ~/.c
 omarchy-shell shell rescanPlugins
 
 # 3. Enable the bar widget (left, center, or right)
-omarchy plugin enable battery-display-profiles right
+omarchy plugin enable hazem.battery.display right
 ```
 
 #### Manual Uninstall
 ```bash
 # 1. Disable the plugin
-omarchy plugin disable battery-display-profiles
+omarchy plugin disable hazem.battery.display
 
 # 2. Delete the plugin folder
-rm -rf ~/.config/omarchy/plugins/battery-display-profiles
+rm -rf ~/.config/omarchy/plugins/hazem.battery.display
 
 # 3. Rescan plugins to refresh shell registry
 omarchy-shell shell rescanPlugins
@@ -172,7 +172,7 @@ Settings are saved in `~/.config/omarchy/shell.json` under your bar configuratio
 
 ```json
 {
-  "id": "battery-display-profiles",
+  "id": "hazem.battery.display",
   "monitors": [
     {
       "name": "eDP-1",

@@ -14,7 +14,7 @@
 - Verify successful switches with `hyprctl monitors -j` before updating internal caches.
 
 ## 3. Configuration & State Reactivity
-- Persist settings via `omarchy bar set battery-display-profiles <key> <val>`. Do not rewrite `shell.json` directly from QML.
+- Persist settings via `omarchy bar set hazem.battery.display <key> <val>`. Do not rewrite `shell.json` directly from QML.
 - Invalidate profile caches across both `(powerState, appliedMode)` so that profile modifications on the current power state trigger immediate application.
 
 ## 4. Live Verification Standard

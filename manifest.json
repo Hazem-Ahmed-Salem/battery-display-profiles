@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "battery-display-profiles",
+  "id": "hazem.battery.display",
   "name": "Battery Display Profiles",
   "version": "0.3.0",
   "author": "Hazem-Ahmed-Salem",

@@ -341,10 +341,10 @@ Item {
         cliPersistProcess.command = [
             "sh",
             "-c",
-            "omarchy bar set battery-display-profiles monitor " + JSON.stringify(primary.name) + " && " +
-            "omarchy bar set battery-display-profiles acMode " + JSON.stringify(primary.acMode) + " && " +
-            "omarchy bar set battery-display-profiles batteryMode " + JSON.stringify(primary.batteryMode) + " && " +
-            "omarchy bar set battery-display-profiles monitors " + JSON.stringify(jsonStr) + " --json"
+            "omarchy bar set hazem.battery.display monitor " + JSON.stringify(primary.name) + " && " +
+            "omarchy bar set hazem.battery.display acMode " + JSON.stringify(primary.acMode) + " && " +
+            "omarchy bar set hazem.battery.display batteryMode " + JSON.stringify(primary.batteryMode) + " && " +
+            "omarchy bar set hazem.battery.display monitors " + JSON.stringify(jsonStr) + " --json"
         ]
 
         cliPersistProcess.running = true
@@ -370,7 +370,7 @@ Item {
 
                     if (
                         item &&
-                        item.id === "battery-display-profiles"
+                        (item.id === "hazem.battery.display" || item.id === "battery-display-profiles")
                     ) {
                         return item
                     }
@@ -384,7 +384,7 @@ Item {
 
                 if (
                     plugin &&
-                    plugin.id === "battery-display-profiles"
+                    (plugin.id === "hazem.battery.display" || plugin.id === "battery-display-profiles")
                 ) {
                     return plugin
                 }
