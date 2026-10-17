@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Hazem-Ahmed-Salem/battery-display-profiles/releases"><img src="https://img.shields.io/badge/version-0.3.0-blue.svg?style=flat-square" alt="Version 0.3.0" /></a>
+  <a href="https://github.com/Hazem-Ahmed-Salem/battery-display-profiles/releases"><img src="https://img.shields.io/badge/version-0.5.0-blue.svg?style=flat-square" alt="Version 0.5.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="MIT License" /></a>
   <a href="https://omarchy.org"><img src="https://img.shields.io/badge/Omarchy-4%20(Quattro)-8A2BE2.svg?style=flat-square" alt="Omarchy 4 Quattro" /></a>
   <a href="https://hyprland.org"><img src="https://img.shields.io/badge/Hyprland-Native%20Lua-00bcd4.svg?style=flat-square" alt="Hyprland" /></a>

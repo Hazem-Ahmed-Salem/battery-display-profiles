@@ -163,6 +163,10 @@ Item {
             }
         }
 
+        matches.sort(function(a, b) {
+            return b.parsed.refreshRate - a.parsed.refreshRate
+        })
+
         return matches
     }
 
@@ -309,10 +313,10 @@ Item {
                 }
             }
 
-            // Avoid duplicate refresh rates (within 0.1 Hz)
+            // Avoid duplicate refresh rates (within 0.01 Hz)
             var rateExists = false
             for (var r = 0; r < map[key].refreshRates.length; r++) {
-                if (Math.abs(map[key].refreshRates[r] - parsed.refreshRate) < 0.1) {
+                if (Math.abs(map[key].refreshRates[r] - parsed.refreshRate) < 0.01) {
                     rateExists = true
                     break
                 }
@@ -505,6 +509,21 @@ Item {
         }
     }
 
+    function formatRefreshRate(rate) {
+        var num = Number(rate)
+        if (isNaN(num)) {
+            return ""
+        }
+
+        if (Math.abs(num - Math.round(num)) < 0.005) {
+            num = Math.round(num)
+        } else {
+            num = Number(num.toFixed(2))
+        }
+
+        return num + " Hz"
+    }
+
     /*
      * ---------------------------------------------------------
      * Mode comparison
@@ -539,24 +558,50 @@ Item {
 
         /*
          * Hyprland may report the active refresh rate
-         * slightly differently from availableModes.
+         * slightly differently from availableModes due to DRM/KMS
+         * hardware PLL clock jitter.
          *
          * Example:
-         *
          * available: 165.00
          * active:    165.002
          *
-         * Treat those as equivalent.
+         * A tolerance of 0.01 accommodates PLL jitter (<0.005)
+         * while strictly differentiating real NTSC drop-frame rates
+         * (e.g. 59.94 vs 60.00, 143.98 vs 144.00, 23.98 vs 24.00).
          */
         return Math.abs(
             first.refreshRate -
             second.refreshRate
-        ) < 0.1
+        ) < 0.01
     }
 
     function currentMode(monitor) {
         if (!monitor) {
             return ""
+        }
+
+        if (Array.isArray(monitor.availableModes) && monitor.availableModes.length > 0) {
+            var currentW = Number(monitor.width)
+            var currentH = Number(monitor.height)
+            var currentHz = Number(monitor.refreshRate)
+            var bestMode = ""
+            var bestDiff = 999999
+
+            for (var i = 0; i < monitor.availableModes.length; i++) {
+                var p = parseMode(monitor.availableModes[i])
+                if (!p) continue
+                if ((p.width === currentW && p.height === currentH) ||
+                    (p.width === currentH && p.height === currentW)) {
+                    var diff = Math.abs(p.refreshRate - currentHz)
+                    if (diff < bestDiff) {
+                        bestDiff = diff
+                        bestMode = normalizeMode(monitor.availableModes[i])
+                    }
+                }
+            }
+            if (bestMode !== "" && bestDiff < 0.5) {
+                return bestMode
+            }
         }
 
         return normalizeMode(

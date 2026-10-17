@@ -313,7 +313,7 @@ Item {
         var normalized = displayController.normalizeMode(mode)
         var parsed = displayController.parseMode(normalized)
         if (!parsed) return mode
-        return parsed.width + "×" + parsed.height + " · " + Math.round(parsed.refreshRate) + " Hz"
+        return parsed.width + "×" + parsed.height + " · " + displayController.formatRefreshRate(parsed.refreshRate)
     }
 
     function isCurrentMode(mode) {
@@ -1181,7 +1181,7 @@ Item {
                                                 anchors.centerIn: parent
                                                 text: {
                                                     var p = displayController.parseMode(modelData)
-                                                    return p ? (Math.round(p.refreshRate) + " Hz") : modelData
+                                                    return p ? displayController.formatRefreshRate(p.refreshRate) : modelData
                                                 }
                                                 color: root.bar.foreground
                                                 font.family: root.bar.fontFamily
@@ -1629,7 +1629,7 @@ Item {
                                         }
 
                                         Text {
-                                            text: modelData.width + "×" + modelData.height + " · " + Math.round(modelData.refreshRate) + " Hz"
+                                            text: modelData.width + "×" + modelData.height + " · " + displayController.formatRefreshRate(modelData.refreshRate)
                                             color: Qt.darker(root.bar.foreground, 1.4)
                                             font.family: root.bar.fontFamily
                                             font.pixelSize: Style.font.caption
@@ -1789,7 +1789,7 @@ Item {
                                         }
 
                                         Text {
-                                            text: modelData.refreshRates.map(function(r) { return Math.round(r) + " Hz" }).join(", ")
+                                            text: modelData.refreshRates.map(function(r) { return displayController.formatRefreshRate(r) }).join(", ")
                                             color: Qt.darker(root.bar.foreground, 1.4)
                                             font.family: root.bar.fontFamily
                                             font.pixelSize: Style.font.caption

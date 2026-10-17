@@ -25,8 +25,52 @@ function parseMode(mode) {
     return { width, height, refreshRate };
 }
 
+function formatRefreshRate(rate) {
+    var num = Number(rate);
+    if (isNaN(num)) return "";
+    if (Math.abs(num - Math.round(num)) < 0.005) {
+        num = Math.round(num);
+    } else {
+        num = Number(num.toFixed(2));
+    }
+    return num + " Hz";
+}
+
+function modesEquivalent(firstMode, secondMode) {
+    var first = parseMode(firstMode);
+    var second = parseMode(secondMode);
+    if (!first || !second) return false;
+    if (first.width !== second.width || first.height !== second.height) {
+        return false;
+    }
+    return Math.abs(first.refreshRate - second.refreshRate) < 0.01;
+}
+
 function currentMode(monitor) {
     if (!monitor) return "";
+    if (Array.isArray(monitor.availableModes) && monitor.availableModes.length > 0) {
+        var currentW = Number(monitor.width);
+        var currentH = Number(monitor.height);
+        var currentHz = Number(monitor.refreshRate);
+        var bestMode = "";
+        var bestDiff = 999999;
+
+        for (var i = 0; i < monitor.availableModes.length; i++) {
+            var p = parseMode(monitor.availableModes[i]);
+            if (!p) continue;
+            if ((p.width === currentW && p.height === currentH) ||
+                (p.width === currentH && p.height === currentW)) {
+                var diff = Math.abs(p.refreshRate - currentHz);
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestMode = normalizeMode(monitor.availableModes[i]);
+                }
+            }
+        }
+        if (bestMode !== "" && bestDiff < 0.5) {
+            return bestMode;
+        }
+    }
     return normalizeMode(monitor.width + "x" + monitor.height + "@" + monitor.refreshRate);
 }
 
@@ -62,6 +106,10 @@ function modesForCurrentResolution(monitor) {
             }
         }
     }
+
+    matches.sort(function(a, b) {
+        return b.parsed.refreshRate - a.parsed.refreshRate;
+    });
 
     return matches;
 }
@@ -173,8 +221,8 @@ function availableResolutions(monitor) {
 
         var rateExists = false;
         for (var r = 0; r < map[key].refreshRates.length; r++) {
-            if (Math.abs(map[key].refreshRates[r] - parsed.refreshRate) < 0.1) {
-                rateExists = true;
+            if (Math.abs(map[key].refreshRates[r] - parsed.refreshRate) < 0.01) {
+                rateExists = true
                 break;
             }
         }
@@ -455,6 +503,82 @@ console.log("==> Running DisplayController logic tests...");
     assert.strictEqual(bat720, "1280x720@60");
 
     console.log("  ✓ Test 7: Resolution selection and profile adaptation passed");
+}
+
+// Test 8: Unrounded refresh rates, 59.94Hz vs 60.00Hz separation, and sorting
+{
+    const mon = {
+        name: "HDMI-A-5",
+        width: 1920,
+        height: 1080,
+        refreshRate: 165.00301,
+        availableModes: [
+            "1920x1080@60.00Hz",
+            "3840x2160@59.94Hz",
+            "3840x2160@29.97Hz",
+            "3840x2160@23.98Hz",
+            "1920x1080@165.00Hz",
+            "1920x1080@143.98Hz",
+            "1920x1080@119.88Hz",
+            "1920x1080@59.94Hz",
+            "1920x1080@50.00Hz",
+            "1920x1080@23.98Hz"
+        ]
+    };
+
+    // 1. Current mode canonical resolution (maps 165.00301 to 165)
+    assert.strictEqual(currentMode(mon), "1920x1080@165");
+
+    // 2. Format refresh rate tests
+    assert.strictEqual(formatRefreshRate(60), "60 Hz");
+    assert.strictEqual(formatRefreshRate(59.94), "59.94 Hz");
+    assert.strictEqual(formatRefreshRate(165), "165 Hz");
+    assert.strictEqual(formatRefreshRate(165.00301), "165 Hz");
+    assert.strictEqual(formatRefreshRate(143.98), "143.98 Hz");
+    assert.strictEqual(formatRefreshRate(119.88), "119.88 Hz");
+    assert.strictEqual(formatRefreshRate(23.98), "23.98 Hz");
+    assert.strictEqual(formatRefreshRate(50), "50 Hz");
+
+    // 3. Modes for current resolution must be sorted descending and include both 60 and 59.94
+    const curModes = modesForCurrentResolution(mon);
+    assert.strictEqual(curModes.length, 7);
+    const formattedRates = curModes.map(m => formatRefreshRate(m.parsed.refreshRate));
+    assert.deepStrictEqual(formattedRates, [
+        "165 Hz",
+        "143.98 Hz",
+        "119.88 Hz",
+        "60 Hz",
+        "59.94 Hz",
+        "50 Hz",
+        "23.98 Hz"
+    ]);
+
+    // Ensure all formatted rates are distinct - no duplicate "60 Hz" pills!
+    const uniqueFormatted = Array.from(new Set(formattedRates));
+    assert.strictEqual(uniqueFormatted.length, formattedRates.length, "All refresh rate pill labels must be unique");
+
+    // 4. Mode equivalence must strictly separate 60 from 59.94
+    assert.strictEqual(modesEquivalent("1920x1080@60", "1920x1080@59.94"), false, "60Hz and 59.94Hz must not be equivalent");
+    assert.strictEqual(modesEquivalent("1920x1080@144", "1920x1080@143.98"), false, "144Hz and 143.98Hz must not be equivalent");
+    assert.strictEqual(modesEquivalent("1920x1080@24", "1920x1080@23.98"), false, "24Hz and 23.98Hz must not be equivalent");
+
+    // But accommodate PLL clock jitter (~0.003)
+    assert.strictEqual(modesEquivalent("1920x1080@165", "1920x1080@165.00301"), true);
+    assert.strictEqual(modesEquivalent("1920x1080@165", "1920x1080@165.00200"), true);
+
+    // 5. Switching to 59.94 maps correctly
+    const mon59 = Object.assign({}, mon, { refreshRate: 59.94002 });
+    assert.strictEqual(currentMode(mon59), "1920x1080@59.94");
+
+    // 6. Available resolutions lists both 60 and 59.94
+    const resList = availableResolutions(mon);
+    const fhd = resList.find(r => r.width === 1920 && r.height === 1080);
+    assert.ok(fhd, "1080p must be found");
+    assert.strictEqual(fhd.refreshRates.length, 7);
+    assert.ok(fhd.refreshRates.includes(60));
+    assert.ok(fhd.refreshRates.includes(59.94));
+
+    console.log("  ✓ Test 8: Unrounded refresh rates, 59.94Hz vs 60.00Hz separation, and sorting passed");
 }
 
 console.log("==> All tests passed successfully!");
