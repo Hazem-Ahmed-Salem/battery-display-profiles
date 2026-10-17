@@ -205,10 +205,10 @@ Item {
             var mAcMode = String(item.acMode || "").trim()
             var mBatteryMode = String(item.batteryMode || "").trim()
 
-            // If monitor is connected, ensure modes match active resolution and actually exist
+            // If monitor is connected, ensure modes actually exist
             var liveMon = displayController.findMonitor(mName)
             if (liveMon) {
-                if (mAcMode === "" || !displayController.modeMatchesCurrentResolution(liveMon, mAcMode) || !displayController.modeExists(liveMon, mAcMode)) {
+                if (mAcMode === "" || !displayController.modeExists(liveMon, mAcMode)) {
                     mAcMode = displayController.highestMode(liveMon)
                     configNeedsPersist = true
                     console.log(
@@ -217,11 +217,24 @@ Item {
                         mAcMode
                     )
                 }
-                if (mBatteryMode === "" || !displayController.modeMatchesCurrentResolution(liveMon, mBatteryMode) || !displayController.modeExists(liveMon, mBatteryMode)) {
+                if (mBatteryMode === "" || !displayController.modeExists(liveMon, mBatteryMode)) {
                     mBatteryMode = displayController.lowestMode(liveMon)
                     configNeedsPersist = true
                     console.log(
                         "[Battery Display Profiles] Falling back to safe default Battery mode for",
+                        mName + ":",
+                        mBatteryMode
+                    )
+                }
+
+                // Ensure both profiles share the same base resolution
+                var parsedAc = displayController.parseMode(mAcMode)
+                var parsedBat = displayController.parseMode(mBatteryMode)
+                if (parsedAc && parsedBat && (parsedAc.width !== parsedBat.width || parsedAc.height !== parsedBat.height)) {
+                    mBatteryMode = displayController.lowestModeForResolution(liveMon, parsedAc.width, parsedAc.height)
+                    configNeedsPersist = true
+                    console.log(
+                        "[Battery Display Profiles] Aligned Battery mode resolution to AC resolution for",
                         mName + ":",
                         mBatteryMode
                     )

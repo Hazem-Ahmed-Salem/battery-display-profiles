@@ -99,7 +99,9 @@ omarchy-shell shell rescanPlugins
 ## Key Features
 
 - **Zero-Touch Display Auto-Detection**: Automatically discovers any connected monitor (internal laptop eDP, HDMI, DisplayPort, USB-C) at startup and during hotplug events. Default AC and Battery modes are configured out of the box with zero manual setup.
-- **Strict Resolution Preservation**: Mode switching **never** alters your display resolution. If a display runs at 2560×1600 or 1920×1080, only the refresh rate changes (e.g. 165Hz ↔ 60Hz).
+- **Safe Resolution Switching & Aspect Ratio Detection**: Change display resolutions on the fly directly from the status bar popup. All available hardware resolutions are grouped, tagged with aspect ratios (`16:9`, `16:10`, `4:3`, `21:9`), and sorted cleanly.
+- **15-Second Safety Revert Timer**: When applying a new resolution, an automated 15-second countdown timer protects against black screens, cable signal drops, or unsupported timings, safely restoring the previous working mode unless explicitly confirmed ("Keep Changes").
+- **Resolution-Synchronized Power Profiles**: Changing a display's resolution automatically adapts both AC (highest available Hz) and Battery (smooth power-saving Hz $\ge 59\,\text{Hz}$) profiles to that resolution.
 - **Rotated & Portrait Display Support**: Seamlessly accommodates transformed displays (90° / 270°) by evaluating physical dimensions against transformed viewports.
 - **Smart Refresh Rate Selection**:
   - **AC Default**: Highest available refresh rate for the active resolution.
@@ -117,6 +119,7 @@ omarchy-shell shell rescanPlugins
 - **Native Quattro Bar Widget**:
   - Dynamic status bar glyph indicating single or multi-monitor setups.
   - Monitor tabs with live connection status dots (`●`) and disabled indicators.
+  - Interactive Resolution section opening a dedicated selection view with aspect ratios and available refresh rates.
   - Quick refresh rate toggle buttons for instantaneous manual overrides.
   - Detailed AC and Battery profile cards with interactive mode pickers.
   - Disconnected monitor safety: Disconnected displays are preserved in settings and skipped cleanly.

@@ -110,6 +110,154 @@ function lowestMode(monitor) {
     return best.normalized;
 }
 
+function gcd(a, b) {
+    var x = Math.abs(a);
+    var y = Math.abs(b);
+    while (y !== 0) {
+        var t = y;
+        y = x % y;
+        x = t;
+    }
+    return x;
+}
+
+function aspectRatio(width, height) {
+    var w = Number(width);
+    var h = Number(height);
+    if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) return "";
+
+    var ratio = w / h;
+    if (Math.abs(ratio - 16 / 9) < 0.02) return "16:9";
+    if (Math.abs(ratio - 16 / 10) < 0.02) return "16:10";
+    if (Math.abs(ratio - 4 / 3) < 0.02) return "4:3";
+    if (Math.abs(ratio - 5 / 4) < 0.02) return "5:4";
+    if (Math.abs(ratio - 21 / 9) < 0.05 || Math.abs(ratio - 64 / 27) < 0.05) return "21:9";
+    if (Math.abs(ratio - 32 / 9) < 0.05) return "32:9";
+
+    var d = gcd(w, h);
+    var rw = w / d;
+    var rh = h / d;
+    if (rw < 50 && rh < 50) return rw + ":" + rh;
+    return (Math.round(ratio * 10) / 10) + ":1";
+}
+
+function availableResolutions(monitor) {
+    if (!monitor || !Array.isArray(monitor.availableModes) || monitor.availableModes.length === 0) {
+        return [];
+    }
+
+    var currentW = Number(monitor.width);
+    var currentH = Number(monitor.height);
+
+    var map = {};
+    for (var i = 0; i < monitor.availableModes.length; i++) {
+        var rawMode = monitor.availableModes[i];
+        var parsed = parseMode(rawMode);
+        if (!parsed) continue;
+
+        var key = parsed.width + "x" + parsed.height;
+        if (!map[key]) {
+            var isCurrent = (parsed.width === currentW && parsed.height === currentH) ||
+                            (parsed.width === currentH && parsed.height === currentW);
+            map[key] = {
+                width: parsed.width,
+                height: parsed.height,
+                label: parsed.width + " × " + parsed.height,
+                aspect: aspectRatio(parsed.width, parsed.height),
+                pixelCount: parsed.width * parsed.height,
+                isCurrent: isCurrent,
+                refreshRates: [],
+                modes: []
+            };
+        }
+
+        var rateExists = false;
+        for (var r = 0; r < map[key].refreshRates.length; r++) {
+            if (Math.abs(map[key].refreshRates[r] - parsed.refreshRate) < 0.1) {
+                rateExists = true;
+                break;
+            }
+        }
+        if (!rateExists) {
+            map[key].refreshRates.push(parsed.refreshRate);
+        }
+        map[key].modes.push(rawMode);
+    }
+
+    var list = [];
+    for (var k in map) {
+        if (map.hasOwnProperty(k)) {
+            map[k].refreshRates.sort(function(a, b) { return b - a; });
+            list.push(map[k]);
+        }
+    }
+
+    list.sort(function(a, b) {
+        if (b.pixelCount !== a.pixelCount) return b.pixelCount - a.pixelCount;
+        return b.width - a.width;
+    });
+
+    return list;
+}
+
+function modesForResolution(monitor, width, height) {
+    if (!monitor || !Array.isArray(monitor.availableModes)) return [];
+    var targetW = Number(width);
+    var targetH = Number(height);
+    if (isNaN(targetW) || isNaN(targetH)) return [];
+
+    var matches = [];
+    for (var i = 0; i < monitor.availableModes.length; i++) {
+        var parsed = parseMode(monitor.availableModes[i]);
+        if (!parsed) continue;
+
+        if ((parsed.width === targetW && parsed.height === targetH) ||
+            (parsed.width === targetH && parsed.height === targetW)) {
+            matches.push({
+                raw: monitor.availableModes[i],
+                normalized: normalizeMode(monitor.availableModes[i]),
+                parsed: parsed
+            });
+        }
+    }
+
+    matches.sort(function(a, b) {
+        return b.parsed.refreshRate - a.parsed.refreshRate;
+    });
+
+    return matches;
+}
+
+function highestModeForResolution(monitor, width, height) {
+    if (!monitor) return "";
+    var matches = modesForResolution(monitor, width, height);
+    if (matches.length === 0) return currentMode(monitor);
+    return matches[0].normalized;
+}
+
+function lowestModeForResolution(monitor, width, height) {
+    if (!monitor) return "";
+    var matches = modesForResolution(monitor, width, height);
+    if (matches.length === 0) return currentMode(monitor);
+
+    var smoothModes = [];
+    for (var i = 0; i < matches.length; i++) {
+        if (matches[i].parsed.refreshRate >= 59.0) {
+            smoothModes.push(matches[i]);
+        }
+    }
+
+    var candidates = (smoothModes.length > 0) ? smoothModes : matches;
+    var best = candidates[0];
+    for (var j = 1; j < candidates.length; j++) {
+        if (candidates[j].parsed.refreshRate < best.parsed.refreshRate) {
+            best = candidates[j];
+        }
+    }
+
+    return best.normalized;
+}
+
 // -------------------------------------------------------------
 // Tests
 // -------------------------------------------------------------
@@ -232,6 +380,81 @@ console.log("==> Running DisplayController logic tests...");
     assert.strictEqual(configured[1].acMode, "1920x1080@144");
     assert.strictEqual(configured[1].batteryMode, "1920x1080@60");
     console.log("  ✓ Test 5: Auto-detection multi-monitor reconciliation passed");
+}
+
+// Test 6: Available resolutions grouping, aspect ratios, and sorting
+{
+    const mon = {
+        name: "HDMI-A-5",
+        width: 1920,
+        height: 1080,
+        refreshRate: 165.003,
+        availableModes: [
+            "1920x1080@60.00Hz",
+            "3840x2160@59.94Hz",
+            "3840x2160@29.97Hz",
+            "1920x1080@165.00Hz",
+            "1920x1080@143.98Hz",
+            "1280x720@60.00Hz",
+            "1280x720@50.00Hz",
+            "2560x1600@60.00Hz"
+        ]
+    };
+
+    const resList = availableResolutions(mon);
+    assert.ok(resList.length >= 4, "Should have at least 4 unique resolutions");
+
+    // Sorted descending by pixelCount
+    assert.strictEqual(resList[0].width, 3840);
+    assert.strictEqual(resList[0].height, 2160);
+    assert.strictEqual(resList[0].aspect, "16:9");
+    assert.strictEqual(resList[0].isCurrent, false);
+    assert.strictEqual(resList[0].refreshRates.length, 2);
+
+    assert.strictEqual(resList[1].width, 2560);
+    assert.strictEqual(resList[1].height, 1600);
+    assert.strictEqual(resList[1].aspect, "16:10");
+
+    assert.strictEqual(resList[2].width, 1920);
+    assert.strictEqual(resList[2].height, 1080);
+    assert.strictEqual(resList[2].aspect, "16:9");
+    assert.strictEqual(resList[2].isCurrent, true);
+    assert.strictEqual(resList[2].refreshRates.length, 3);
+    assert.strictEqual(Math.round(resList[2].refreshRates[0]), 165);
+
+    console.log("  ✓ Test 6: Available resolutions grouping, aspect ratios, and sorting passed");
+}
+
+// Test 7: Resolution selection and profile adaptation
+{
+    const mon = {
+        name: "HDMI-A-5",
+        width: 1920,
+        height: 1080,
+        refreshRate: 165.003,
+        availableModes: [
+            "3840x2160@60.00Hz",
+            "3840x2160@30.00Hz",
+            "1920x1080@165.00Hz",
+            "1920x1080@60.00Hz",
+            "1280x720@120.00Hz",
+            "1280x720@60.00Hz"
+        ]
+    };
+
+    // Switch to 4K
+    const ac4k = highestModeForResolution(mon, 3840, 2160);
+    const bat4k = lowestModeForResolution(mon, 3840, 2160);
+    assert.strictEqual(ac4k, "3840x2160@60");
+    assert.strictEqual(bat4k, "3840x2160@60", "Must avoid 30Hz on battery for 4K");
+
+    // Switch to 720p
+    const ac720 = highestModeForResolution(mon, 1280, 720);
+    const bat720 = lowestModeForResolution(mon, 1280, 720);
+    assert.strictEqual(ac720, "1280x720@120");
+    assert.strictEqual(bat720, "1280x720@60");
+
+    console.log("  ✓ Test 7: Resolution selection and profile adaptation passed");
 }
 
 console.log("==> All tests passed successfully!");

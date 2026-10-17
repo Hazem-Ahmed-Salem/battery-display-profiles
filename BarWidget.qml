@@ -20,10 +20,29 @@ Item {
     property var configuredMonitors: []
     property string activeMonitorName: ""
 
-    // Sub-views: "main", "editMode", "addMonitor"
+    // Sub-views: "main", "editMode", "addMonitor", "selectResolution"
     property string currentView: "main"
     // When editing mode: "ac" or "battery"
     property string editingProfileKey: ""
+
+    // Safety revert properties for resolution changes
+    property string preChangeMode: ""
+    property string revertMonitorName: ""
+    property int revertCountdown: 15
+    property bool awaitingRevertConfirmation: false
+
+    Timer {
+        id: revertTimer
+        interval: 1000
+        repeat: true
+        running: root.awaitingRevertConfirmation && root.revertCountdown > 0
+        onTriggered: {
+            root.revertCountdown--
+            if (root.revertCountdown <= 0) {
+                root.revertResolution()
+            }
+        }
+    }
 
     readonly property string powerState:
         UPower.onBattery ? "Battery" : "AC"
@@ -152,13 +171,26 @@ Item {
 
             var live = displayController.findMonitor(mName)
             if (live) {
-                if (mAc === "" || !displayController.modeMatchesCurrentResolution(live, mAc) || !displayController.modeExists(live, mAc)) {
-                    mAc = displayController.highestMode(live)
-                    needsPersist = true
-                }
-                if (mBat === "" || !displayController.modeMatchesCurrentResolution(live, mBat) || !displayController.modeExists(live, mBat)) {
-                    mBat = displayController.lowestMode(live)
-                    needsPersist = true
+                // If we are awaiting confirmation for a resolution change on this monitor, preserve pending modes
+                var isPendingThis = root.awaitingRevertConfirmation && root.revertMonitorName === mName
+
+                if (!isPendingThis) {
+                    if (mAc === "" || !displayController.modeExists(live, mAc)) {
+                        mAc = displayController.highestMode(live)
+                        needsPersist = true
+                    }
+                    if (mBat === "" || !displayController.modeExists(live, mBat)) {
+                        mBat = displayController.lowestMode(live)
+                        needsPersist = true
+                    }
+
+                    // Ensure both profiles share the same base resolution
+                    var pAc = displayController.parseMode(mAc)
+                    var pBat = displayController.parseMode(mBat)
+                    if (pAc && pBat && (pAc.width !== pBat.width || pAc.height !== pBat.height)) {
+                        mBat = displayController.lowestModeForResolution(live, pAc.width, pAc.height)
+                        needsPersist = true
+                    }
                 }
             }
 
@@ -291,6 +323,98 @@ Item {
     function selectMode(mode) {
         if (isCurrentMode(mode) || !root.isActiveConnected) return
         displayController.applyMode(root.activeMonitorName, mode)
+    }
+
+    function selectResolution(resItem) {
+        if (!resItem || !root.activeConfiguredMonitor || !root.activeLiveMonitor) return
+
+        var targetW = resItem.width
+        var targetH = resItem.height
+
+        var targetMode = root.powerState === "Battery"
+            ? displayController.lowestModeForResolution(root.activeLiveMonitor, targetW, targetH)
+            : displayController.highestModeForResolution(root.activeLiveMonitor, targetW, targetH)
+
+        if (!targetMode || isCurrentMode(targetMode)) {
+            root.currentView = "main"
+            return
+        }
+
+        // Save pre-change state for revert countdown
+        root.preChangeMode = root.activeCurrentMode
+        root.revertMonitorName = root.activeMonitorName
+        root.revertCountdown = 15
+        root.awaitingRevertConfirmation = true
+
+        // Apply new mode via DisplayController (Lua runtime)
+        displayController.applyMode(root.activeMonitorName, targetMode)
+
+        // Adapt both AC and Battery profiles to this new resolution
+        var newAcMode = displayController.highestModeForResolution(root.activeLiveMonitor, targetW, targetH)
+        var newBatMode = displayController.lowestModeForResolution(root.activeLiveMonitor, targetW, targetH)
+
+        var list = []
+        for (var i = 0; i < root.configuredMonitors.length; i++) {
+            var item = root.configuredMonitors[i]
+            if (item.name === root.activeMonitorName) {
+                list.push({
+                    name: item.name,
+                    enabled: item.enabled,
+                    acMode: newAcMode,
+                    batteryMode: newBatMode
+                })
+            } else {
+                list.push(item)
+            }
+        }
+        root.configuredMonitors = list
+        root.currentView = "main"
+    }
+
+    function confirmKeepResolution() {
+        root.awaitingRevertConfirmation = false
+        root.preChangeMode = ""
+        root.revertMonitorName = ""
+        root.persistSettings()
+    }
+
+    function revertResolution() {
+        var targetMon = root.revertMonitorName
+        var targetMode = root.preChangeMode
+
+        root.awaitingRevertConfirmation = false
+        root.preChangeMode = ""
+        root.revertMonitorName = ""
+
+        if (targetMon !== "" && targetMode !== "") {
+            displayController.applyMode(targetMon, targetMode)
+
+            var parsed = displayController.parseMode(targetMode)
+            if (parsed) {
+                var live = displayController.findMonitor(targetMon)
+                if (live) {
+                    var oldAc = displayController.highestModeForResolution(live, parsed.width, parsed.height)
+                    var oldBat = displayController.lowestModeForResolution(live, parsed.width, parsed.height)
+
+                    var list = []
+                    for (var i = 0; i < root.configuredMonitors.length; i++) {
+                        var item = root.configuredMonitors[i]
+                        if (item.name === targetMon) {
+                            list.push({
+                                name: item.name,
+                                enabled: item.enabled,
+                                acMode: oldAc,
+                                batteryMode: oldBat
+                            })
+                        } else {
+                            list.push(item)
+                        }
+                    }
+                    root.configuredMonitors = list
+                    root.persistSettings()
+                }
+            }
+        }
     }
 
     function toggleActiveMonitorEnabled() {
@@ -473,7 +597,9 @@ Item {
                                     ? "Display Profiles"
                                     : (root.currentView === "addMonitor"
                                         ? "Add Monitor"
-                                        : (root.editingProfileKey === "ac" ? "AC Mode Profile" : "Battery Mode Profile"))
+                                        : (root.currentView === "selectResolution"
+                                            ? "Change Resolution"
+                                            : (root.editingProfileKey === "ac" ? "AC Mode Profile" : "Battery Mode Profile")))
                                 color: root.bar.foreground
                                 font.family: root.bar.fontFamily
                                 font.pixelSize: Style.font.title
@@ -487,7 +613,9 @@ Item {
                                     ? (root.powerState + " power active (" + root.configuredMonitors.length + " monitor" + (root.configuredMonitors.length === 1 ? "" : "s") + ")")
                                     : (root.currentView === "addMonitor"
                                         ? "Select an output to configure"
-                                        : "Choose mode for " + root.activeMonitorName)
+                                        : (root.currentView === "selectResolution"
+                                            ? "Choose resolution for " + root.activeMonitorName
+                                            : "Choose mode for " + root.activeMonitorName))
                                 color: Qt.darker(root.bar.foreground, 1.4)
                                 font.family: root.bar.fontFamily
                                 font.pixelSize: Style.font.caption
@@ -784,6 +912,223 @@ Item {
                                     font.family: root.bar.fontFamily
                                     font.pixelSize: Style.font.body
                                     font.bold: true
+                                }
+                            }
+
+                            /*
+                             * 15-SECOND REVERT CONFIRMATION BANNER
+                             */
+                            Item {
+                                width: parent.width
+                                implicitHeight: revertBannerCol.implicitHeight + Style.space(16)
+                                visible: root.awaitingRevertConfirmation
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: Style.radius.panel
+                                    color: Qt.rgba(229/255, 192/255, 123/255, 0.15)
+                                    border.width: 1
+                                    border.color: Qt.rgba(229/255, 192/255, 123/255, 0.4)
+                                }
+
+                                Column {
+                                    id: revertBannerCol
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: Style.space(10)
+                                    spacing: Style.space(8)
+
+                                    Row {
+                                        width: parent.width
+                                        spacing: Style.space(8)
+
+                                        Text {
+                                            text: "󰀦"
+                                            color: "#e5c07b"
+                                            font.family: root.bar.fontFamily
+                                            font.pixelSize: Style.font.title
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+
+                                        Column {
+                                            width: parent.width - Style.space(36)
+                                            spacing: Style.space(2)
+
+                                            Text {
+                                                width: parent.width
+                                                text: "Keep new resolution?"
+                                                color: root.bar.foreground
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.body
+                                                font.bold: true
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                text: "Reverting in " + root.revertCountdown + "s if not confirmed..."
+                                                color: "#e5c07b"
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.caption
+                                            }
+                                        }
+                                    }
+
+                                    Row {
+                                        anchors.right: parent.right
+                                        spacing: Style.space(8)
+
+                                        // Keep Changes button
+                                        CursorSurface {
+                                            implicitHeight: Style.spacing.controlHeight
+                                            implicitWidth: keepText.implicitWidth + Style.space(20)
+                                            foreground: root.bar.foreground
+                                            fill: Color.accent
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    root.confirmKeepResolution()
+                                                }
+                                            }
+
+                                            Text {
+                                                id: keepText
+                                                anchors.centerIn: parent
+                                                text: "Keep Changes"
+                                                color: root.bar.background
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.body
+                                                font.bold: true
+                                            }
+                                        }
+
+                                        // Revert button
+                                        CursorSurface {
+                                            implicitHeight: Style.spacing.controlHeight
+                                            implicitWidth: revText.implicitWidth + Style.space(20)
+                                            foreground: root.bar.foreground
+                                            fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    root.revertResolution()
+                                                }
+                                            }
+
+                                            Text {
+                                                id: revText
+                                                anchors.centerIn: parent
+                                                text: "Revert"
+                                                color: "#e06c75"
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.body
+                                                font.bold: true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            /*
+                             * RESOLUTION
+                             */
+                            Column {
+                                width: parent.width
+                                visible: root.isActiveConnected && root.activeLiveMonitor
+                                spacing: Style.space(6)
+
+                                PanelSectionHeader {
+                                    text: "RESOLUTION"
+                                    foreground: root.bar.foreground
+                                    fontFamily: root.bar.fontFamily
+                                }
+
+                                CursorSurface {
+                                    width: parent.width
+                                    implicitHeight: Style.spacing.controlHeight + Style.space(8)
+                                    foreground: root.bar.foreground
+                                    fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.currentView = "selectResolution"
+                                        }
+                                    }
+
+                                    Row {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.leftMargin: Style.space(12)
+                                        anchors.rightMargin: Style.space(12)
+                                        spacing: Style.space(10)
+
+                                        Text {
+                                            text: "󰍹"
+                                            color: root.bar.foreground
+                                            font.family: root.bar.fontFamily
+                                            font.pixelSize: Style.font.title
+                                        }
+
+                                        Column {
+                                            width: parent.width - Style.space(80)
+                                            spacing: Style.space(1)
+
+                                            Row {
+                                                spacing: Style.space(8)
+
+                                                Text {
+                                                    text: root.activeLiveMonitor ? (root.activeLiveMonitor.width + " × " + root.activeLiveMonitor.height) : "Unknown"
+                                                    color: root.bar.foreground
+                                                    font.family: root.bar.fontFamily
+                                                    font.pixelSize: Style.font.body
+                                                    font.bold: true
+                                                }
+
+                                                CursorSurface {
+                                                    implicitHeight: Style.space(18)
+                                                    implicitWidth: curAspectBadgeText.implicitWidth + Style.space(8)
+                                                    foreground: root.bar.foreground
+                                                    fill: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.1)
+
+                                                    Text {
+                                                        id: curAspectBadgeText
+                                                        anchors.centerIn: parent
+                                                        text: root.activeLiveMonitor ? displayController.aspectRatio(root.activeLiveMonitor.width, root.activeLiveMonitor.height) : ""
+                                                        color: Qt.darker(root.bar.foreground, 1.2)
+                                                        font.family: root.bar.fontFamily
+                                                        font.pixelSize: Style.font.caption
+                                                        font.bold: true
+                                                    }
+                                                }
+                                            }
+
+                                            Text {
+                                                text: {
+                                                    if (!root.activeLiveMonitor) return ""
+                                                    var allRes = displayController.availableResolutions(root.activeLiveMonitor)
+                                                    return allRes.length + " available resolutions"
+                                                }
+                                                color: Qt.darker(root.bar.foreground, 1.4)
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.caption
+                                            }
+                                        }
+
+                                        Text {
+                                            text: "Change 󰄾"
+                                            color: Color.accent
+                                            font.family: root.bar.fontFamily
+                                            font.pixelSize: Style.font.caption
+                                            font.bold: true
+                                        }
+                                    }
                                 }
                             }
 
@@ -1309,6 +1654,158 @@ Item {
                             color: Qt.darker(root.bar.foreground, 1.4)
                             font.family: root.bar.fontFamily
                             font.pixelSize: Style.font.caption
+                        }
+                    }
+                }
+
+                /*
+                 * =================================================
+                 * SELECT RESOLUTION VIEW
+                 * =================================================
+                 */
+
+                Column {
+                    width: parent.width
+                    visible: root.currentView === "selectResolution"
+                    spacing: Style.space(12)
+
+                    // Back button
+                    CursorSurface {
+                        implicitHeight: Style.spacing.controlHeight
+                        implicitWidth: resBackBtnRow.implicitWidth + Style.space(16)
+                        foreground: root.bar.foreground
+                        fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.currentView = "main"
+                            }
+                        }
+
+                        Row {
+                            id: resBackBtnRow
+                            anchors.centerIn: parent
+                            spacing: Style.space(6)
+
+                            Text {
+                                text: "󰁍"
+                                color: root.bar.foreground
+                                font.family: root.bar.fontFamily
+                                font.pixelSize: Style.font.body
+                            }
+
+                            Text {
+                                text: "Back"
+                                color: root.bar.foreground
+                                font.family: root.bar.fontFamily
+                                font.pixelSize: Style.font.body
+                            }
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "Available display resolutions for " + root.activeMonitorName + ":"
+                        color: Qt.darker(root.bar.foreground, 1.4)
+                        font.family: root.bar.fontFamily
+                        font.pixelSize: Style.font.caption
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: Style.space(4)
+
+                        Repeater {
+                            model: (root.activeLiveMonitor && root.currentView === "selectResolution") ? displayController.availableResolutions(root.activeLiveMonitor) : []
+
+                            delegate: CursorSurface {
+                                required property var modelData
+                                required property int index
+
+                                width: parent.width
+                                implicitHeight: Style.spacing.controlHeight + Style.space(12)
+                                foreground: root.bar.foreground
+                                current: modelData.isCurrent
+                                fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
+                                currentFill: Style.selectedFillFor(root.bar.foreground, Color.accent)
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.selectResolution(modelData)
+                                    }
+                                }
+
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: Style.space(12)
+                                    anchors.rightMargin: Style.space(12)
+                                    spacing: Style.space(10)
+
+                                    Text {
+                                        text: modelData.isCurrent ? "󰄬" : "󰍹"
+                                        color: modelData.isCurrent ? Color.accent : root.bar.foreground
+                                        font.family: root.bar.fontFamily
+                                        font.pixelSize: Style.font.body
+                                    }
+
+                                    Column {
+                                        width: parent.width - Style.space(90)
+                                        spacing: Style.space(1)
+
+                                        Row {
+                                            spacing: Style.space(8)
+
+                                            Text {
+                                                text: modelData.label
+                                                color: root.bar.foreground
+                                                font.family: root.bar.fontFamily
+                                                font.pixelSize: Style.font.body
+                                                font.bold: true
+                                            }
+
+                                            CursorSurface {
+                                                implicitHeight: Style.space(18)
+                                                implicitWidth: listAspectBadgeText.implicitWidth + Style.space(8)
+                                                foreground: root.bar.foreground
+                                                fill: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.1)
+
+                                                Text {
+                                                    id: listAspectBadgeText
+                                                    anchors.centerIn: parent
+                                                    text: modelData.aspect
+                                                    color: Qt.darker(root.bar.foreground, 1.2)
+                                                    font.family: root.bar.fontFamily
+                                                    font.pixelSize: Style.font.caption
+                                                    font.bold: true
+                                                }
+                                            }
+                                        }
+
+                                        Text {
+                                            text: modelData.refreshRates.map(function(r) { return Math.round(r) + " Hz" }).join(", ")
+                                            color: Qt.darker(root.bar.foreground, 1.4)
+                                            font.family: root.bar.fontFamily
+                                            font.pixelSize: Style.font.caption
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    Text {
+                                        text: modelData.isCurrent ? "Current" : "Apply"
+                                        color: modelData.isCurrent ? Color.accent : Qt.darker(root.bar.foreground, 1.4)
+                                        font.family: root.bar.fontFamily
+                                        font.pixelSize: Style.font.caption
+                                        font.bold: true
+                                    }
+                                }
+                            }
                         }
                     }
                 }
